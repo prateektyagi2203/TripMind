@@ -174,6 +174,34 @@ class TripMember {
   );
 }
 
+class Traveller {
+  final String name;
+  final int age;
+  final String sex; // male | female | other | ''
+  final bool isMe;
+
+  const Traveller({
+    required this.name,
+    this.age = 0,
+    this.sex = '',
+    this.isMe = false,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'age': age,
+    'sex': sex,
+    'is_me': isMe,
+  };
+
+  factory Traveller.fromJson(Map<String, dynamic> j) => Traveller(
+    name: j['name'] as String? ?? '',
+    age: (j['age'] as num?)?.toInt() ?? 0,
+    sex: j['sex'] as String? ?? '',
+    isMe: j['is_me'] as bool? ?? false,
+  );
+}
+
 class Trip {
   final String id;
   final String name;
@@ -188,6 +216,7 @@ class Trip {
   final List<TripMember> members;
   final List<Destination> destinations;
   final List<Journey> journeys;
+  final List<Traveller> travellers;
 
   const Trip({
     required this.id,
@@ -203,6 +232,7 @@ class Trip {
     required this.members,
     required this.destinations,
     required this.journeys,
+    this.travellers = const [],
   });
 
   List<Color> get gradient => coverGradient == 'ocean'
@@ -231,6 +261,9 @@ class Trip {
         .toList(),
     journeys: (j['journeys'] as List<dynamic>? ?? [])
         .map((j2) => Journey.fromJson(j2 as Map<String, dynamic>))
+        .toList(),
+    travellers: (j['travellers'] as List<dynamic>? ?? [])
+        .map((t) => Traveller.fromJson(t as Map<String, dynamic>))
         .toList(),
   );
 }

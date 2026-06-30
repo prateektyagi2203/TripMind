@@ -25,6 +25,7 @@ from .db_models import (
     ItineraryActivity,
     ItineraryDay,
     Journey,
+    Traveller,
     Trip,
     TripMember,
     User,
@@ -305,6 +306,28 @@ def _hhmm_minus(hhmm: str, minutes: int) -> str:
     return f"{total // 60:02d}:{total % 60:02d}"
 
 
+def _travellers_summary(trip_id: str, session: Session) -> str:
+    """A short, human description of who's travelling, for the AI prompt.
+
+    e.g. "Prateek (42), Aanya (8, female)" — ages help tailor the plan
+    (kid-friendly stops, pace, etc.)."""
+    travellers = session.exec(
+        select(Traveller)
+        .where(Traveller.trip_id == trip_id)
+        .order_by(Traveller.order_index)
+    ).all()
+    parts: list[str] = []
+    for t in travellers:
+        name = (t.name or "").strip() or "Traveller"
+        bits: list[str] = []
+        if t.age:
+            bits.append(str(t.age))
+        if (t.sex or "").strip():
+            bits.append(t.sex.strip())
+        parts.append(f"{name} ({', '.join(bits)})" if bits else name)
+    return ", ".join(parts)
+
+
 def _departure_flight(trip_id: str, session: Session) -> dict | None:
     """The flight home for a trip: prefers a journey flagged to 'Home', else any
     flight that carries a departure time. Returns date/time/from/flight info."""
@@ -345,6 +368,7 @@ def _build_prompt(
     pois_by_city: dict[str, list[dict]],
     prefs: PlanPreferences,
     dep_flight: dict | None = None,
+    travellers: str = "",
 ) -> str:
     lines: list[str] = []
     lines.append(
@@ -374,6 +398,8 @@ def _build_prompt(
         lines.append(f"- Travelers: {prefs.travelers}")
     if prefs.notes:
         lines.append(f"- Notes: {prefs.notes}")
+    if travellers:
+        lines.append(f"- Travelling party: {travellers}")
 
     # Departure-flight aware rule for the last day.
     dep_rule = ""
@@ -612,7 +638,10 @@ async def generate_itinerary(
         return _scaffold(dates, list(dests), pois_by_city, prefs)
 
     dep_flight = _departure_flight(trip_id, session)
-    prompt = _build_prompt(trip, dates, list(dests), pois_by_city, prefs, dep_flight)
+    travellers = _travellers_summary(trip_id, session)
+    prompt = _build_prompt(
+        trip, dates, list(dests), pois_by_city, prefs, dep_flight, travellers
+    )
     # Budget output tokens for the trip length; capped to stay within the
     # model's output limit. Roughly ~480 tokens per day of activities.
     max_out = min(16000, max(2600, len(dates) * 480 + 600))

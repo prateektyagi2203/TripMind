@@ -42,7 +42,6 @@ class _ItineraryPlannerScreenState
   String _pace = 'balanced';
   final Set<String> _interests = {};
   bool _keepFirstDayLight = true;
-  final _travelersCtrl = TextEditingController();
 
   static const _interestOptions = [
     'Food',
@@ -72,7 +71,6 @@ class _ItineraryPlannerScreenState
 
   @override
   void dispose() {
-    _travelersCtrl.dispose();
     super.dispose();
   }
 
@@ -139,7 +137,6 @@ class _ItineraryPlannerScreenState
         pace: _pace,
         interests: _interests.toList(),
         keepFirstDayLight: _keepFirstDayLight,
-        travelers: _travelersCtrl.text.trim(),
       );
       final plan = await ref
           .read(itineraryRepositoryProvider)
@@ -272,7 +269,6 @@ class _ItineraryPlannerScreenState
           }),
           keepFirstDayLight: _keepFirstDayLight,
           onKeepFirstDayLight: (v) => setState(() => _keepFirstDayLight = v),
-          travelersCtrl: _travelersCtrl,
           error: _error,
           onGenerate: _generate,
           onManual: () => setState(() {
@@ -326,7 +322,6 @@ class _PreferencesView extends StatelessWidget {
   final ValueChanged<String> onToggleInterest;
   final bool keepFirstDayLight;
   final ValueChanged<bool> onKeepFirstDayLight;
-  final TextEditingController travelersCtrl;
   final String? error;
   final VoidCallback onGenerate;
   final VoidCallback onManual;
@@ -340,7 +335,6 @@ class _PreferencesView extends StatelessWidget {
     required this.onToggleInterest,
     required this.keepFirstDayLight,
     required this.onKeepFirstDayLight,
-    required this.travelersCtrl,
     required this.error,
     required this.onGenerate,
     required this.onManual,
@@ -432,25 +426,6 @@ class _PreferencesView extends StatelessWidget {
             style: TextStyle(fontWeight: FontWeight.w600),
           ),
           subtitle: const Text('Ease in after you arrive and check in'),
-        ),
-        const SizedBox(height: 12),
-        const _Label('Who\'s travelling? (optional)'),
-        const SizedBox(height: 8),
-        TextField(
-          controller: travelersCtrl,
-          decoration: InputDecoration(
-            hintText: 'e.g. 2 adults + a 6-year-old',
-            filled: true,
-            fillColor: AppColors.card,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: AppColors.border),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: AppColors.border),
-            ),
-          ),
         ),
         if (error != null) ...[
           const SizedBox(height: 16),

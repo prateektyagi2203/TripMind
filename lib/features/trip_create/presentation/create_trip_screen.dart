@@ -89,9 +89,24 @@ class _CityDraft {
   }
 }
 
+/// One traveller on the trip: name, age and sex. The first traveller is "me".
+class _TravellerDraft {
+  final nameCtrl = TextEditingController();
+  final ageCtrl = TextEditingController();
+  String sex = ''; // male | female | other | ''
+  final bool isMe;
+
+  _TravellerDraft({this.isMe = false});
+
+  void dispose() {
+    nameCtrl.dispose();
+    ageCtrl.dispose();
+  }
+}
+
 class _CreateTripScreenState extends ConsumerState<CreateTripScreen> {
   int _step = 0;
-  static const _lastStep = 4;
+  static const _lastStep = 5;
 
   final _nameCtrl = TextEditingController();
   DateTime? _start;
@@ -106,12 +121,33 @@ class _CreateTripScreenState extends ConsumerState<CreateTripScreen> {
 
   final List<_CityDraft> _cities = [_CityDraft()];
 
+  // Travellers — the first one is "me" (Prateek) by default.
+  final List<_TravellerDraft> _travellers = [];
+
   bool get _isEdit => widget.existing != null;
 
   @override
   void initState() {
     super.initState();
     final t = widget.existing;
+
+    // Seed travellers: an existing trip's saved list, otherwise a default
+    // "me" = Prateek (42) which the user can edit.
+    if (t != null && t.travellers.isNotEmpty) {
+      for (final tr in t.travellers) {
+        final d = _TravellerDraft(isMe: tr.isMe);
+        d.nameCtrl.text = tr.name;
+        d.ageCtrl.text = tr.age > 0 ? tr.age.toString() : '';
+        d.sex = tr.sex;
+        _travellers.add(d);
+      }
+    } else {
+      final me = _TravellerDraft(isMe: true);
+      me.nameCtrl.text = 'Prateek';
+      me.ageCtrl.text = '42';
+      _travellers.add(me);
+    }
+
     if (t == null) return;
     _nameCtrl.text = t.name;
     _start = DateTime.tryParse(t.startDate);
@@ -162,6 +198,9 @@ class _CreateTripScreenState extends ConsumerState<CreateTripScreen> {
     for (final c in _cities) {
       c.dispose();
     }
+    for (final t in _travellers) {
+      t.dispose();
+    }
     super.dispose();
   }
 
@@ -170,10 +209,13 @@ class _CreateTripScreenState extends ConsumerState<CreateTripScreen> {
     0 => _nameCtrl.text.trim().isNotEmpty,
     1 => _start != null && _end != null && !_end!.isBefore(_start!),
     2 =>
+      _travellers.isNotEmpty &&
+          _travellers.every((t) => t.nameCtrl.text.trim().isNotEmpty),
+    3 =>
       _cities.first.cityCtrl.text.trim().isNotEmpty &&
           _cities.first.hotelCtrl.text.trim().isNotEmpty,
-    3 => true, // inbound flight optional fields
-    4 =>
+    4 => true, // inbound flight optional fields
+    5 =>
       _cities
           .skip(1)
           .every(
@@ -367,6 +409,16 @@ class _CreateTripScreenState extends ConsumerState<CreateTripScreen> {
     try {
       final repo = ref.read(tripsRepositoryProvider);
       final existing = widget.existing;
+      final travellers = [
+        for (final t in _travellers)
+          if (t.nameCtrl.text.trim().isNotEmpty)
+            Traveller(
+              name: t.nameCtrl.text.trim(),
+              age: int.tryParse(t.ageCtrl.text.trim()) ?? 0,
+              sex: t.sex,
+              isMe: t.isMe,
+            ),
+      ];
       final trip = existing == null
           ? await repo.create(
               name: _nameCtrl.text.trim(),
@@ -376,6 +428,7 @@ class _CreateTripScreenState extends ConsumerState<CreateTripScreen> {
               coverGradient: _gradient,
               destinations: destinations,
               journeys: journeys,
+              travellers: travellers,
             )
           : await repo.update(
               tripId: existing.id,
@@ -386,6 +439,7 @@ class _CreateTripScreenState extends ConsumerState<CreateTripScreen> {
               coverGradient: _gradient,
               destinations: destinations,
               journeys: journeys,
+              travellers: travellers,
             );
       ref.invalidate(tripsListProvider);
       if (!mounted) return;
@@ -467,8 +521,9 @@ class _CreateTripScreenState extends ConsumerState<CreateTripScreen> {
   Widget _buildStep() => switch (_step) {
     0 => _stepName(),
     1 => _stepDates(),
-    2 => _stepFirstCity(),
-    3 => _stepInboundFlight(),
+    2 => _stepTravellers(),
+    3 => _stepFirstCity(),
+    4 => _stepInboundFlight(),
     _ => _stepExtraCities(),
   };
 
@@ -556,7 +611,73 @@ class _CreateTripScreenState extends ConsumerState<CreateTripScreen> {
     );
   }
 
-  // Step 2 — first city + hotel
+  // Step 2 — who's travelling (count + each name, age, sex)
+  Widget _stepTravellers() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Who\'s travelling?',
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
+        const SizedBox(height: 6),
+        const Text(
+          'Add everyone on the trip. Ages help tailor the plan (kid-friendly '
+          'stops, pace and more).',
+          style: TextStyle(color: AppColors.mutedForeground),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            const Text(
+              'Travellers',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const Spacer(),
+            _CountStepper(
+              count: _travellers.length,
+              min: 1,
+              onChanged: _setTravellerCount,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        for (var i = 0; i < _travellers.length; i++) ...[
+          _TravellerForm(
+            key: ValueKey(_travellers[i]),
+            draft: _travellers[i],
+            index: i,
+            onChanged: () => setState(() {}),
+            onRemove: _travellers.length > 1 && !_travellers[i].isMe
+                ? () => _removeTraveller(i)
+                : null,
+          ),
+          const SizedBox(height: 12),
+        ],
+      ],
+    );
+  }
+
+  void _setTravellerCount(int next) {
+    setState(() {
+      if (next > _travellers.length) {
+        while (_travellers.length < next) {
+          _travellers.add(_TravellerDraft());
+        }
+      } else if (next < _travellers.length) {
+        // Remove from the end, but never remove "me" (index 0).
+        while (_travellers.length > next && _travellers.length > 1) {
+          _travellers.removeLast().dispose();
+        }
+      }
+    });
+  }
+
+  void _removeTraveller(int i) {
+    setState(() => _travellers.removeAt(i).dispose());
+  }
+
+  // Step 3 — first city + hotel
   Widget _stepFirstCity() {
     return _CityForm(
       draft: _cities.first,
@@ -568,7 +689,7 @@ class _CreateTripScreenState extends ConsumerState<CreateTripScreen> {
     );
   }
 
-  // Step 3 — departure (home) flight (stored as the journey for city 0)
+  // Step 4 — departure (home) flight (stored as the journey for city 0)
   Widget _stepInboundFlight() {
     final c = _cities.first;
     _depDate ??= _end;
@@ -637,7 +758,7 @@ class _CreateTripScreenState extends ConsumerState<CreateTripScreen> {
     );
   }
 
-  // Step 4 — additional cities
+  // Step 5 — additional cities
   Widget _stepExtraCities() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -801,6 +922,173 @@ class _GradientChoice extends StatelessWidget {
               ? const Icon(Icons.check_circle, color: Colors.white)
               : null,
         ),
+      ),
+    );
+  }
+}
+
+class _CountStepper extends StatelessWidget {
+  final int count;
+  final int min;
+  final ValueChanged<int> onChanged;
+  const _CountStepper({
+    required this.count,
+    required this.onChanged,
+    this.min = 1,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.remove_rounded, size: 18),
+            color: AppColors.ocean,
+            onPressed: count > min ? () => onChanged(count - 1) : null,
+            visualDensity: VisualDensity.compact,
+          ),
+          Text(
+            '$count',
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+          ),
+          IconButton(
+            icon: const Icon(Icons.add_rounded, size: 18),
+            color: AppColors.ocean,
+            onPressed: count < 20 ? () => onChanged(count + 1) : null,
+            visualDensity: VisualDensity.compact,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TravellerForm extends StatelessWidget {
+  final _TravellerDraft draft;
+  final int index;
+  final VoidCallback onChanged;
+  final VoidCallback? onRemove;
+  const _TravellerForm({
+    super.key,
+    required this.draft,
+    required this.index,
+    required this.onChanged,
+    this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 14,
+                backgroundColor: draft.isMe
+                    ? AppColors.primary
+                    : AppColors.ocean.withValues(alpha: 0.15),
+                child: Icon(
+                  draft.isMe ? Icons.person_rounded : Icons.person_outline,
+                  size: 16,
+                  color: draft.isMe ? Colors.white : AppColors.ocean,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                draft.isMe ? 'You' : 'Traveller ${index + 1}',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const Spacer(),
+              if (onRemove != null)
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, size: 18),
+                  color: AppColors.mutedForeground,
+                  onPressed: onRemove,
+                  visualDensity: VisualDensity.compact,
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: draft.nameCtrl,
+            onChanged: (_) => onChanged(),
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+              labelText: 'Name',
+              hintText: 'Full name',
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 96,
+                child: TextField(
+                  controller: draft.ageCtrl,
+                  onChanged: (_) => onChanged(),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(3),
+                  ],
+                  decoration: const InputDecoration(labelText: 'Age'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Padding(
+                      padding: EdgeInsets.only(left: 4, bottom: 4),
+                      child: Text(
+                        'Sex',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: AppColors.mutedForeground,
+                        ),
+                      ),
+                    ),
+                    Wrap(
+                      spacing: 6,
+                      children: [
+                        for (final s in const [
+                          ('male', 'Male'),
+                          ('female', 'Female'),
+                          ('other', 'Other'),
+                        ])
+                          ChoiceChip(
+                            label: Text(s.$2),
+                            selected: draft.sex == s.$1,
+                            onSelected: (_) {
+                              draft.sex = draft.sex == s.$1 ? '' : s.$1;
+                              onChanged();
+                            },
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

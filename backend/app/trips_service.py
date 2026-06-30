@@ -9,13 +9,14 @@ from fastapi import HTTPException, status
 from sqlmodel import Session, select
 
 from .concierge_service import _get_client, _model
-from .db_models import Destination, Journey, Trip, TripMember, User
+from .db_models import Destination, Journey, Traveller, Trip, TripMember, User
 from .trip_schemas import (
     DestinationOut,
     HotelResolveResponse,
     HotelSearchResponse,
     HotelSuggestion,
     JourneyOut,
+    TravellerOut,
     TripCreate,
     TripMemberOut,
     TripOut,
@@ -85,6 +86,18 @@ def create_trip(payload: TripCreate, owner: User, session: Session) -> TripOut:
             )
         )
 
+    for i, t in enumerate(payload.travellers):
+        session.add(
+            Traveller(
+                trip_id=trip.id,
+                order_index=i,
+                name=t.name.strip(),
+                age=t.age,
+                sex=t.sex.strip(),
+                is_me=t.is_me,
+            )
+        )
+
     session.commit()
     session.refresh(trip)
     return _to_out(trip, owner, session)
@@ -137,6 +150,10 @@ def update_trip(
         session.delete(d)
     for j in old_journeys:
         session.delete(j)
+    for t in session.exec(
+        select(Traveller).where(Traveller.trip_id == trip_id)
+    ).all():
+        session.delete(t)
     session.flush()
 
     for i, d in enumerate(payload.destinations):
@@ -181,6 +198,18 @@ def update_trip(
             )
         )
 
+    for i, t in enumerate(payload.travellers):
+        session.add(
+            Traveller(
+                trip_id=trip.id,
+                order_index=i,
+                name=t.name.strip(),
+                age=t.age,
+                sex=t.sex.strip(),
+                is_me=t.is_me,
+            )
+        )
+
     session.commit()
     session.refresh(trip)
     return _to_out(trip, user, session)
@@ -213,6 +242,12 @@ def _to_out(trip: Trip, viewer: User, session: Session) -> TripOut:
         select(Journey)
         .where(Journey.trip_id == trip.id)
         .order_by(Journey.order_index)
+    ).all()
+
+    travellers = session.exec(
+        select(Traveller)
+        .where(Traveller.trip_id == trip.id)
+        .order_by(Traveller.order_index)
     ).all()
 
     return TripOut(
@@ -265,6 +300,17 @@ def _to_out(trip: Trip, viewer: User, session: Session) -> TripOut:
                 status_checked_at=j.status_checked_at,
             )
             for j in journeys
+        ],
+        travellers=[
+            TravellerOut(
+                id=t.id,
+                order_index=t.order_index,
+                name=t.name,
+                age=t.age,
+                sex=t.sex,
+                is_me=t.is_me,
+            )
+            for t in travellers
         ],
     )
 

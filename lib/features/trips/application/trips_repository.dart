@@ -53,6 +53,7 @@ class TripsRepository {
     required String coverGradient,
     required List<Destination> destinations,
     required List<Journey> journeys,
+    List<Traveller> travellers = const [],
   }) async {
     final res = await _dio.post<Map<String, dynamic>>(
       '/api/trips',
@@ -64,6 +65,7 @@ class TripsRepository {
         'cover_gradient': coverGradient,
         'destinations': destinations.map((d) => d.toJson()).toList(),
         'journeys': journeys.map((j) => j.toJson()).toList(),
+        'travellers': travellers.map((t) => t.toJson()).toList(),
       },
     );
     return Trip.fromJson(res.data!);
@@ -78,6 +80,7 @@ class TripsRepository {
     required String coverGradient,
     required List<Destination> destinations,
     required List<Journey> journeys,
+    List<Traveller> travellers = const [],
   }) async {
     final res = await _dio.put<Map<String, dynamic>>(
       '/api/trips/$tripId',
@@ -89,6 +92,7 @@ class TripsRepository {
         'cover_gradient': coverGradient,
         'destinations': destinations.map((d) => d.toJson()).toList(),
         'journeys': journeys.map((j) => j.toJson()).toList(),
+        'travellers': travellers.map((t) => t.toJson()).toList(),
       },
     );
     return Trip.fromJson(res.data!);

@@ -50,6 +50,13 @@ class JourneyIn(BaseModel):
     arrive: str = Field("", max_length=30)
 
 
+class TravellerIn(BaseModel):
+    name: str = Field("", max_length=80)
+    age: int = Field(0, ge=0, le=120)
+    sex: str = Field("", max_length=10)
+    is_me: bool = False
+
+
 class TripCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     start_date: str = Field(..., max_length=30)
@@ -58,6 +65,7 @@ class TripCreate(BaseModel):
     cover_gradient: Literal["sunset", "ocean"] = "sunset"
     destinations: list[DestinationIn] = Field(default_factory=list)
     journeys: list[JourneyIn] = Field(default_factory=list)
+    travellers: list[TravellerIn] = Field(default_factory=list)
 
 
 # ---- Trip output ---------------------------------------------------------
@@ -89,6 +97,11 @@ class TripMemberOut(BaseModel):
     role: str
 
 
+class TravellerOut(TravellerIn):
+    id: str
+    order_index: int
+
+
 class TripOut(BaseModel):
     id: str
     name: str
@@ -103,6 +116,7 @@ class TripOut(BaseModel):
     members: list[TripMemberOut]
     destinations: list[DestinationOut]
     journeys: list[JourneyOut]
+    travellers: list[TravellerOut] = Field(default_factory=list)
 
 
 # ---- Join & hotel resolve ------------------------------------------------

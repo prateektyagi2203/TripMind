@@ -67,6 +67,20 @@ class Destination(SQLModel, table=True):
     checkout: str = ""
 
 
+class Traveller(SQLModel, table=True):
+    """A person on the trip (the owner + their family/companions)."""
+
+    __tablename__ = "travellers"
+
+    id: str = Field(default_factory=_uuid, primary_key=True)
+    trip_id: str = Field(index=True, foreign_key="trips.id")
+    order_index: int = 0
+    name: str = ""
+    age: int = 0  # 0 when unknown
+    sex: str = ""  # male | female | other | ""
+    is_me: bool = False  # the trip owner / primary traveller
+
+
 class Journey(SQLModel, table=True):
     __tablename__ = "journeys"
 
