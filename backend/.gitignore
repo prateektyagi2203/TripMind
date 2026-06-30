@@ -1,0 +1,11 @@
+.env
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local SQLite database (runtime/test data)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
