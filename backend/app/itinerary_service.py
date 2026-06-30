@@ -306,6 +306,18 @@ def _hhmm_minus(hhmm: str, minutes: int) -> str:
     return f"{total // 60:02d}:{total % 60:02d}"
 
 
+def _hhmm_plus(hhmm: str, minutes: int) -> str:
+    """Return HH:MM that is ``minutes`` after the given HH:MM (clamped to 23:59)."""
+    try:
+        h, m = (int(x) for x in hhmm.split(":")[:2])
+    except (ValueError, AttributeError):
+        return ""
+    total = h * 60 + m + minutes
+    if total > 23 * 60 + 59:
+        total = 23 * 60 + 59
+    return f"{total // 60:02d}:{total % 60:02d}"
+
+
 def _travellers_summary(trip_id: str, session: Session) -> str:
     """A short, human description of who's travelling, for the AI prompt.
 
@@ -355,6 +367,32 @@ def _departure_flight(trip_id: str, session: Session) -> dict | None:
     }
 
 
+def _arrival_flight(trip_id: str, session: Session) -> dict | None:
+    """The inbound arrival into the FIRST city: a journey from 'Home' that
+    carries an arrival time. Returns date/time/to_city/flight info so Day 1 can
+    be planned around when the traveller actually reaches the destination."""
+    journeys = session.exec(
+        select(Journey).where(Journey.trip_id == trip_id)
+    ).all()
+    home = [j for j in journeys if (j.from_city or "").strip().lower() == "home"]
+    cand = home[0] if home else next(
+        (j for j in journeys if "T" in (j.arrive or "")), None
+    )
+    if cand is None:
+        return None
+    arr = (cand.arrive or "").strip()
+    if "T" not in arr:
+        return None
+    return {
+        "date": arr[:10],
+        "time": arr.split("T", 1)[1][:5],
+        "to_city": (cand.to_city or "").strip(),
+        "mode": (cand.mode or "").strip(),
+        "flight_number": (cand.flight_number or "").strip(),
+        "airline": (cand.airline or "").strip(),
+    }
+
+
 def _acts_per_day(pace: str, is_light: bool) -> int:
     if is_light:
         return 2
@@ -369,6 +407,7 @@ def _build_prompt(
     prefs: PlanPreferences,
     dep_flight: dict | None = None,
     travellers: str = "",
+    arr_flight: dict | None = None,
 ) -> str:
     lines: list[str] = []
     lines.append(
@@ -422,10 +461,44 @@ def _build_prompt(
             f"far from the hotel.\n"
         )
 
+    # Arrival-aware rule for the first (arrival) day.
+    arr_rule = ""
+    if arr_flight and arr_flight.get("time"):
+        atime = arr_flight["time"]
+        acity = arr_flight.get("to_city") or "the city"
+        ready_by = _hhmm_plus(atime, 90)  # airport->hotel transfer + check-in
+        ano = arr_flight.get("flight_number")
+        amode = (arr_flight.get("mode") or "flight").strip()
+        arrive_verb = "lands" if amode == "flight" else "arrives"
+        lines.append(
+            f"\nArrival: the traveller reaches {acity} at {atime} local on "
+            f"{arr_flight.get('date', dates[0])}"
+            + (f" on {ano}" if ano else "")
+            + ". This is the FIRST day."
+        )
+        arr_rule = (
+            f"- The FIRST day is the ARRIVAL day. The traveller {arrive_verb} at "
+            f"{atime}; after the {acity} airport/station->hotel transfer and "
+            f"hotel check-in they can realistically only start exploring around "
+            f"{ready_by}. Plan Day 1 activities ONLY from ~{ready_by} onward and "
+            f"set is_light=true.\n"
+            f"  * Choose ONLY spots within short walking distance of the hotel on "
+            f"Day 1 - no far or time-heavy excursions.\n"
+            f"  * If they're ready EARLY (around midday or earlier), there's a full "
+            f"afternoon + evening: fit 3-4 close, walkable activities incl. lunch "
+            f"and dinner.\n"
+            f"  * If they're ready in the AFTERNOON (~13:00-17:00), keep it light: "
+            f"1-2 very nearby walkable spots plus a relaxed dinner near the hotel - "
+            f"do NOT pack in 3+ places.\n"
+            f"  * If they're ready in the EVENING (after ~18:00), Day 1 is just "
+            f"check-in, a nearby dinner and rest.\n"
+        )
+
     lines.append(
         "\nRules:\n"
-        + ("- Keep the FIRST day light (arrival): few, relaxed, near the hotel.\n"
-           if prefs.keep_first_day_light else "")
+        + (arr_rule
+           or ("- Keep the FIRST day light (arrival): few, relaxed, near the hotel.\n"
+               if prefs.keep_first_day_light else ""))
         + (dep_rule or "- Make the LAST day light (departure / flight home): "
            "nothing far, end near the hotel.\n")
         + "- Order activities sensibly through the day with meals; include a time for each.\n"
@@ -639,8 +712,10 @@ async def generate_itinerary(
 
     dep_flight = _departure_flight(trip_id, session)
     travellers = _travellers_summary(trip_id, session)
+    arr_flight = _arrival_flight(trip_id, session)
     prompt = _build_prompt(
-        trip, dates, list(dests), pois_by_city, prefs, dep_flight, travellers
+        trip, dates, list(dests), pois_by_city, prefs, dep_flight, travellers,
+        arr_flight,
     )
     # Budget output tokens for the trip length; capped to stay within the
     # model's output limit. Roughly ~480 tokens per day of activities.

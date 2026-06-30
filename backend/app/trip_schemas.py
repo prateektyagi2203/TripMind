@@ -176,4 +176,6 @@ class FlightLookupResponse(BaseModel):
     departure_time: str = ""  # local HH:MM
     departure_airport: str = ""
     arrival_time: str = ""
+    arrival_airport: str = ""
     scheduled_departure: str = ""  # raw local datetime, if available
+    scheduled_arrival: str = ""

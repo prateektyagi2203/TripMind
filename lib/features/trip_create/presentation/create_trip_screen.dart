@@ -115,6 +115,13 @@ class _CreateTripScreenState extends ConsumerState<CreateTripScreen> {
   DateTime? _depDate;
   TimeOfDay? _depTime;
   bool _lookingUpFlight = false;
+  // Arrival into the first city — date, local time & transport (its own draft
+  // so flight no / airline / mode are separate from the flight home).
+  final _CityDraft _arrival = _CityDraft();
+  DateTime? _arrDate;
+  TimeOfDay? _arrTime;
+  String _arrAirport = '';
+  bool _lookingUpArrival = false;
   String _gradient = 'sunset';
   String _currency = 'THB';
   bool _submitting = false;
@@ -190,11 +197,42 @@ class _CreateTripScreenState extends ConsumerState<CreateTripScreen> {
         _depTime = TimeOfDay(hour: depDt.hour, minute: depDt.minute);
       }
     }
+
+    // Restore the arrival into the first city from the journey flagged from
+    // 'Home' (appended after the inter-city legs).
+    Journey? arrJourney;
+    for (final j in t.journeys) {
+      if (j.fromCity.trim().toLowerCase() == 'home') {
+        arrJourney = j;
+        break;
+      }
+    }
+    if (arrJourney != null) {
+      _arrival.mode = arrJourney.mode;
+      _arrival.flightNumberCtrl.text = arrJourney.flightNumber;
+      _arrival.routeCtrl.text = arrJourney.route;
+      if (arrJourney.airline.isEmpty) {
+        _arrival.airline = '';
+      } else if (kAirlines.contains(arrJourney.airline)) {
+        _arrival.airline = arrJourney.airline;
+      } else {
+        _arrival.airline = 'Other';
+        _arrival.airlineOtherCtrl.text = arrJourney.airline;
+      }
+      final arrDt = DateTime.tryParse(arrJourney.arrive);
+      if (arrDt != null) {
+        _arrDate = DateTime(arrDt.year, arrDt.month, arrDt.day);
+        if (arrJourney.arrive.contains('T')) {
+          _arrTime = TimeOfDay(hour: arrDt.hour, minute: arrDt.minute);
+        }
+      }
+    }
   }
 
   @override
   void dispose() {
     _nameCtrl.dispose();
+    _arrival.dispose();
     for (final c in _cities) {
       c.dispose();
     }
@@ -276,6 +314,78 @@ class _CreateTripScreenState extends ConsumerState<CreateTripScreen> {
     setState(() => _depTime = picked);
   }
 
+  Future<void> _pickArrDate() async {
+    final base = _arrDate ?? _start ?? DateTime.now();
+    final first = (_start ?? DateTime.now()).subtract(const Duration(days: 1));
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: base,
+      firstDate: first,
+      lastDate: (_end ?? base).add(const Duration(days: 365)),
+    );
+    if (picked == null) return;
+    setState(() => _arrDate = picked);
+  }
+
+  Future<void> _pickArrTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: _arrTime ?? const TimeOfDay(hour: 14, minute: 0),
+    );
+    if (picked == null) return;
+    setState(() => _arrTime = picked);
+  }
+
+  /// Auto-fill the arrival time & airport by looking up the flight number.
+  Future<void> _lookupArrTime() async {
+    final fno = _arrival.flightNumberCtrl.text.trim();
+    if (fno.isEmpty) {
+      _snack('Enter the arrival flight number first.');
+      return;
+    }
+    final d = _arrDate ?? _start;
+    if (d == null) {
+      _snack('Pick the arrival date first.');
+      return;
+    }
+    setState(() => _lookingUpArrival = true);
+    try {
+      final arr = await ref
+          .read(itineraryRepositoryProvider)
+          .lookupFlightArrival(fno, _fmt(d));
+      if (!mounted) return;
+      if (arr == null) {
+        _snack('Couldn\'t find $fno on ${_fmt(d)}. Enter the time manually.');
+      } else {
+        final parts = arr.time.split(':');
+        setState(() {
+          _arrTime = TimeOfDay(
+            hour: int.tryParse(parts.first) ?? 0,
+            minute: int.tryParse(parts.last) ?? 0,
+          );
+          _arrAirport = arr.airport;
+          if (_arrival.airline.isEmpty && arr.airline.isNotEmpty) {
+            if (kAirlines.contains(arr.airline)) {
+              _arrival.airline = arr.airline;
+            } else {
+              _arrival.airline = 'Other';
+              _arrival.airlineOtherCtrl.text = arr.airline;
+            }
+          }
+        });
+        _snack(
+          arr.airport.isEmpty
+              ? 'Arrival time set to ${arr.time} (local).'
+              : 'Arriving at ${arr.airport} ~${arr.time} (local).',
+        );
+      }
+    } catch (_) {
+      if (mounted) _snack('Lookup failed. Enter the time manually.');
+    } finally {
+      if (mounted) setState(() => _lookingUpArrival = false);
+    }
+  }
+
   /// Auto-fill the departure time by looking up the flight number + date.
   Future<void> _lookupDepTime() async {
     final c = _cities.first;
@@ -329,6 +439,24 @@ class _CreateTripScreenState extends ConsumerState<CreateTripScreen> {
     final hh = _depTime!.hour.toString().padLeft(2, '0');
     final mm = _depTime!.minute.toString().padLeft(2, '0');
     return '${dd}T$hh:$mm';
+  }
+
+  /// The arrival datetime (into the first city) as a local ISO string.
+  String _arrDateTimeIso() {
+    final d = _arrDate ?? _start;
+    if (d == null) return '';
+    final dd = _fmt(d);
+    if (_arrTime == null) return dd;
+    final hh = _arrTime!.hour.toString().padLeft(2, '0');
+    final mm = _arrTime!.minute.toString().padLeft(2, '0');
+    return '${dd}T$hh:$mm';
+  }
+
+  String _arrAirlineValue() {
+    if (_arrival.airline == 'Other') {
+      return _arrival.airlineOtherCtrl.text.trim();
+    }
+    return _arrival.airline.trim();
   }
 
   Future<void> _resolveHotel(_CityDraft c) async {
@@ -405,6 +533,28 @@ class _CreateTripScreenState extends ConsumerState<CreateTripScreen> {
           ),
         );
       }
+    }
+    // Inbound arrival into the first city (appended last). Stored with
+    // fromCity='Home' and the arrival datetime so Day 1 can be planned around
+    // when the traveller actually reaches the destination.
+    final firstCity = _cities.first.cityCtrl.text.trim();
+    final arrIso = _arrDateTimeIso();
+    final hasArrival =
+        arrIso.isNotEmpty ||
+        _arrival.flightNumberCtrl.text.trim().isNotEmpty ||
+        _arrAirlineValue().isNotEmpty;
+    if (hasArrival) {
+      journeys.add(
+        Journey(
+          mode: _arrival.mode,
+          fromCity: 'Home',
+          toCity: firstCity,
+          flightNumber: _arrival.flightNumberCtrl.text.trim(),
+          airline: _arrAirlineValue(),
+          route: _arrival.routeCtrl.text.trim(),
+          arrive: arrIso,
+        ),
+      );
     }
     try {
       final repo = ref.read(tripsRepositoryProvider);
@@ -689,18 +839,101 @@ class _CreateTripScreenState extends ConsumerState<CreateTripScreen> {
     );
   }
 
-  // Step 4 — departure (home) flight (stored as the journey for city 0)
+  // Step 4 — arrival into the first city + the flight home
   Widget _stepInboundFlight() {
     final c = _cities.first;
     _depDate ??= _end;
+    _arrDate ??= _start;
+    final firstCity = _cities.first.cityCtrl.text.trim();
     final lastCity = _cities.last.cityCtrl.text.trim();
     String two(int n) => n.toString().padLeft(2, '0');
     final timeLabel = _depTime == null
         ? null
         : '${two(_depTime!.hour)}:${two(_depTime!.minute)}';
+    final arrTimeLabel = _arrTime == null
+        ? null
+        : '${two(_arrTime!.hour)}:${two(_arrTime!.minute)}';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Text('Getting there', style: Theme.of(context).textTheme.headlineSmall),
+        const SizedBox(height: 6),
+        Text(
+          firstCity.isEmpty
+              ? 'How and when do you arrive? We\'ll plan Day 1 around it.'
+              : 'How and when do you arrive in $firstCity? We\'ll shape Day 1 '
+                    'around your arrival time.',
+          style: const TextStyle(color: AppColors.mutedForeground),
+        ),
+        const SizedBox(height: 16),
+        _DateField(
+          label: 'Arrival date',
+          value: _arrDate == null ? null : _fmt(_arrDate!),
+          onTap: _pickArrDate,
+        ),
+        const SizedBox(height: 12),
+        _DateField(
+          label: 'Arrival time (local)',
+          value: arrTimeLabel,
+          onTap: _pickArrTime,
+        ),
+        const SizedBox(height: 16),
+        _ModePicker(
+          selected: _arrival.mode,
+          onSelect: (m) => setState(() => _arrival.mode = m),
+        ),
+        const SizedBox(height: 16),
+        _TransportDetails(draft: _arrival, onChanged: () => setState(() {})),
+        if (_arrival.mode == TransportMode.flight) ...[
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _lookingUpArrival ? null : _lookupArrTime,
+              icon: _lookingUpArrival
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.schedule_rounded, size: 18),
+              label: Text(
+                _lookingUpArrival
+                    ? 'Looking up…'
+                    : 'Auto-fill arrival from flight',
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppColors.primary,
+                side: const BorderSide(color: AppColors.primary),
+              ),
+            ),
+          ),
+        ],
+        if (_arrAirport.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Icon(
+                Icons.flight_land_rounded,
+                size: 16,
+                color: AppColors.ocean,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Arriving at $_arrAirport',
+                  style: const TextStyle(
+                    color: AppColors.ocean,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 28),
+        const Divider(height: 1, color: AppColors.border),
+        const SizedBox(height: 24),
         Text(
           'Your flight home',
           style: Theme.of(context).textTheme.headlineSmall,

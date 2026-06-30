@@ -189,6 +189,7 @@ async def lookup_flight(flight_number: str, date_iso: str) -> dict | None:
         arr = f.get("arrival") or {}
         airline = f.get("airline") or {}
         dep_airport = dep.get("airport") or {}
+        arr_airport = arr.get("airport") or {}
         sched_dep = _pick_time(dep, "scheduledTime")
         sched_arr = _pick_time(arr, "scheduledTime")
         return {
@@ -199,7 +200,11 @@ async def lookup_flight(flight_number: str, date_iso: str) -> dict | None:
                 dep_airport.get("name", "") or dep_airport.get("iata", "") or ""
             ),
             "arrival_time": _local_hhmm(sched_arr),
+            "arrival_airport": str(
+                arr_airport.get("name", "") or arr_airport.get("iata", "") or ""
+            ),
             "scheduled_departure": sched_dep,
+            "scheduled_arrival": sched_arr,
         }
     except Exception:
         return None

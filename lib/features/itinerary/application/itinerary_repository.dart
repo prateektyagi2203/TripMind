@@ -66,6 +66,39 @@ class ItineraryRepository {
     final t = (data['departure_time'] as String?)?.trim() ?? '';
     return t.isEmpty ? null : t;
   }
+
+  /// Look up a flight's arrival info (local HH:MM time, airport, airline) by
+  /// number + date. Returns null when the flight can't be found.
+  Future<FlightArrival?> lookupFlightArrival(
+    String flightNumber,
+    String date,
+  ) async {
+    final res = await _dio.post<Map<String, dynamic>>(
+      '/api/flights/lookup',
+      data: {'flight_number': flightNumber, 'date': date},
+    );
+    final data = res.data;
+    if (data == null || data['found'] != true) return null;
+    final t = (data['arrival_time'] as String?)?.trim() ?? '';
+    if (t.isEmpty) return null;
+    return FlightArrival(
+      time: t,
+      airport: (data['arrival_airport'] as String?)?.trim() ?? '',
+      airline: (data['airline'] as String?)?.trim() ?? '',
+    );
+  }
+}
+
+/// Arrival details resolved from a flight lookup.
+class FlightArrival {
+  final String time; // local HH:MM
+  final String airport;
+  final String airline;
+  const FlightArrival({
+    required this.time,
+    this.airport = '',
+    this.airline = '',
+  });
 }
 
 final itineraryRepositoryProvider = Provider<ItineraryRepository>((ref) {
