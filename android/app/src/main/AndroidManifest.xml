@@ -1,4 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Used by plugin: native_geofence (arrival greetings) -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
     <application
         android:label="tripmind"
         android:name="${applicationName}"
@@ -30,6 +38,29 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- Used by plugin: native_geofence -->
+        <receiver android:name="com.chunkytofustudios.native_geofence.receivers.NativeGeofenceBroadcastReceiver"
+                  android:exported="true"/>
+        <receiver android:name="com.chunkytofustudios.native_geofence.receivers.NativeGeofenceRebootBroadcastReceiver"
+                  android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+            </intent-filter>
+        </receiver>
+        <service android:name="com.chunkytofustudios.native_geofence.NativeGeofenceForegroundService"
+                 android:permission="android.permission.BIND_JOB_SERVICE" android:exported="true"/>
+
+        <!-- Used by plugin: flutter_local_notifications -->
+        <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"/>
+        <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
@@ -40,6 +71,23 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Package visibility so canLaunchUrl can detect Grab/Bolt/inDrive
+             for the Day 1 airport transfer card's "Open" buttons. -->
+        <package android:name="com.grabtaxi.passenger"/>
+        <package android:name="ee.mtakso.client"/>
+        <package android:name="sinet.startup.inDriver"/>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="grab"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="bolt"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="indriver"/>
         </intent>
     </queries>
 </manifest>

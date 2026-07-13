@@ -5,9 +5,13 @@ import '../../../core/theme/app_colors.dart';
 import '../../../shared/widgets/screen.dart';
 import '../../itinerary/application/itinerary_repository.dart';
 import '../../itinerary/domain/itinerary.dart';
+import '../../itinerary/presentation/day_map_screen.dart';
 import '../../itinerary/presentation/itinerary_planner_screen.dart';
 import '../../itinerary/presentation/plan_prompt.dart';
 import '../../trips/domain/trip.dart';
+import '../../geofencing/application/geofence_service.dart';
+import '../application/ride_app_launcher.dart';
+import '../domain/airport_transfer.dart';
 
 /// Trip Detail — the saved day-by-day plan plus stays & flights, all driven by
 /// the real [Trip]. Reached by tapping a trip card on the Trips home.
@@ -37,6 +41,7 @@ class TripDetailScreen extends ConsumerWidget {
         padding: EdgeInsets.zero,
         children: [
           _Hero(trip: trip),
+          _AirportTransferSection(tripId: trip.id),
           planAsync.when(
             loading: () => const Padding(
               padding: EdgeInsets.symmetric(vertical: 48),
@@ -140,9 +145,406 @@ class _PlanSection extends ConsumerWidget {
           for (var i = 0; i < plan.days.length; i++)
             Padding(
               padding: const EdgeInsets.only(bottom: 14),
-              child: _DayPlanCard(index: i, day: plan.days[i]),
+              child: _DayPlanCard(index: i, day: plan.days[i], tripId: trip.id),
             ),
         ],
+      ),
+    );
+  }
+}
+
+// ---- Day 1 airport -> hotel transfer -------------------------------------
+class _AirportTransferSection extends ConsumerStatefulWidget {
+  final String tripId;
+  const _AirportTransferSection({required this.tripId});
+
+  @override
+  ConsumerState<_AirportTransferSection> createState() =>
+      _AirportTransferSectionState();
+}
+
+enum _GreetingsStatus { unknown, off, on }
+
+class _AirportTransferSectionState
+    extends ConsumerState<_AirportTransferSection> {
+  _GreetingsStatus _status = _GreetingsStatus.unknown;
+  bool _requesting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshStatus();
+  }
+
+  Future<void> _refreshStatus() async {
+    final granted = await ref
+        .read(geofenceServiceProvider)
+        .hasAlwaysLocationPermission();
+    if (mounted) {
+      setState(() => _status = granted ? _GreetingsStatus.on : _GreetingsStatus.off);
+    }
+  }
+
+  Future<void> _enable(AirportTransfer transfer) async {
+    setState(() => _requesting = true);
+    final service = ref.read(geofenceServiceProvider);
+    await service.initialize();
+    final granted = await service.requestPermissions();
+    if (!granted) {
+      setState(() {
+        _requesting = false;
+        _status = _GreetingsStatus.off;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Background location wasn\'t granted — arrival greetings need it to fire when the app isn\'t open.',
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
+    final plan = await ref.read(itineraryProvider(widget.tripId).future);
+    final tomorrow = plan.days.length > 1 ? plan.days[1] : null;
+    final firstActivity = tomorrow?.activities.isNotEmpty == true
+        ? tomorrow!.activities.first
+        : null;
+
+    await service.syncTripGeofences(
+      tripId: widget.tripId,
+      countryName: 'Thailand',
+      airportLat: transfer.airportLat,
+      airportLng: transfer.airportLng,
+      hotelName: transfer.hotelName,
+      hotelLat: transfer.hotelLat,
+      hotelLng: transfer.hotelLng,
+      tomorrowTime: firstActivity?.time,
+      tomorrowActivity: firstActivity?.title,
+    );
+
+    if (mounted) {
+      setState(() {
+        _requesting = false;
+        _status = _GreetingsStatus.on;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final async = ref.watch(day1AirportTransferProvider(widget.tripId));
+    return async.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, _) => const SizedBox.shrink(),
+      data: (transfer) {
+        if (transfer == null || transfer.providers.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        final geofencesSupported = ref.read(geofenceServiceProvider).isSupported;
+        return Section(
+          title: 'Day 1 · Airport → Hotel',
+          child: Column(
+            children: [
+              _AirportTransferCard(transfer: transfer),
+              if (geofencesSupported) ...[
+                const SizedBox(height: 12),
+                _GreetingsBanner(
+                  status: _status,
+                  requesting: _requesting,
+                  onEnable: () => _enable(transfer),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _GreetingsBanner extends StatelessWidget {
+  final _GreetingsStatus status;
+  final bool requesting;
+  final VoidCallback onEnable;
+  const _GreetingsBanner({
+    required this.status,
+    required this.requesting,
+    required this.onEnable,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (status == _GreetingsStatus.on) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppColors.ocean.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: const Row(
+          children: [
+            Icon(Icons.check_circle_rounded, size: 16, color: AppColors.ocean),
+            SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Arrival greetings are on — we\'ll say hi when you land and when you reach your hotel.',
+                style: TextStyle(fontSize: 12.5, color: AppColors.foreground),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.waving_hand_rounded, size: 20, color: AppColors.sunset),
+          const SizedBox(width: 10),
+          const Expanded(
+            child: Text(
+              'Want a personal welcome when you land, and again at your hotel? '
+              'Needs background location.',
+              style: TextStyle(fontSize: 12.5, color: AppColors.mutedForeground),
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: requesting ? null : onEnable,
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            ),
+            child: requesting
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : const Text('Enable', style: TextStyle(fontSize: 12.5)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AirportTransferCard extends StatelessWidget {
+  final AirportTransfer transfer;
+  const _AirportTransferCard({required this.transfer});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.card,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppColors.border),
+        boxShadow: kSoftShadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: AppColors.ocean.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(
+                  Icons.local_taxi_rounded,
+                  size: 20,
+                  color: AppColors.ocean,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${transfer.airportName} → ${transfer.hotelName}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.foreground,
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        '~${transfer.distanceKm.toStringAsFixed(0)} km'
+                        '${transfer.source == 'approximate' ? ' · approx.' : ''}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppColors.mutedForeground,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.sunset.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.info_outline_rounded,
+                  size: 14,
+                  color: AppColors.sunset,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Estimated — check the app for live pricing.',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: AppColors.sunset.withValues(alpha: 0.9),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          for (final p in transfer.providers)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Row(
+                      children: [
+                        Text(
+                          p.name,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.foreground,
+                          ),
+                        ),
+                        if (p.bestValue) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppColors.sunset.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Text(
+                              'Best value',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.sunset,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  Text(
+                    '~฿${p.priceThb}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.foreground,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '~${p.etaMin} min',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.mutedForeground,
+                    ),
+                  ),
+                  if (_isRideApp(p.name)) ...[
+                    const SizedBox(width: 8),
+                    _OpenAppButton(provider: p.name, transfer: transfer),
+                  ],
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+bool _isRideApp(String providerName) {
+  const rideApps = {'grab', 'bolt', 'indrive'};
+  return rideApps.contains(providerName.toLowerCase());
+}
+
+class _OpenAppButton extends StatelessWidget {
+  final String provider;
+  final AirportTransfer transfer;
+  const _OpenAppButton({required this.provider, required this.transfer});
+
+  Future<void> _open(BuildContext context) async {
+    final opened = await openRideApp(
+      provider,
+      pickupLat: transfer.airportLat,
+      pickupLng: transfer.airportLng,
+      dropoffLat: transfer.hotelLat,
+      dropoffLng: transfer.hotelLng,
+      pickupLabel: transfer.airportName,
+      dropoffLabel: transfer.hotelName,
+    );
+    if (!opened && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Couldn\'t open $provider.')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => _open(context),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: AppColors.ocean.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: const Text(
+          'Open',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: AppColors.ocean,
+          ),
+        ),
       ),
     );
   }
@@ -211,7 +613,8 @@ class _EmptyPlan extends StatelessWidget {
 class _DayPlanCard extends StatelessWidget {
   final int index;
   final ItineraryDay day;
-  const _DayPlanCard({required this.index, required this.day});
+  final String tripId;
+  const _DayPlanCard({required this.index, required this.day, required this.tripId});
 
   @override
   Widget build(BuildContext context) {
@@ -258,6 +661,7 @@ class _DayPlanCard extends StatelessWidget {
                 ),
                 if (day.isLight)
                   Container(
+                    margin: const EdgeInsets.only(right: 8),
                     padding: const EdgeInsets.symmetric(
                       horizontal: 10,
                       vertical: 5,
@@ -284,6 +688,32 @@ class _DayPlanCard extends StatelessWidget {
                           ),
                         ),
                       ],
+                    ),
+                  ),
+                if (day.activities.isNotEmpty)
+                  GestureDetector(
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => DayMapScreen(
+                          tripId: tripId,
+                          dayIndex: day.dayIndex,
+                          dayTitle: 'Day ${index + 1}'
+                              '${day.title.isNotEmpty ? ' · ${day.title}' : ''}',
+                        ),
+                      ),
+                    ),
+                    child: Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: AppColors.ocean.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(11),
+                      ),
+                      child: const Icon(
+                        Icons.map_rounded,
+                        size: 17,
+                        color: AppColors.ocean,
+                      ),
                     ),
                   ),
               ],

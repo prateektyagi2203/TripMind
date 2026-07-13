@@ -2,6 +2,8 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_client.dart';
+import '../../trip_detail/domain/airport_transfer.dart';
+import '../domain/day_route.dart';
 import '../domain/itinerary.dart';
 
 class ItineraryRepository {
@@ -87,6 +89,27 @@ class ItineraryRepository {
       airline: (data['airline'] as String?)?.trim() ?? '',
     );
   }
+
+  /// Day 1 airport -> hotel ride options (Grab/Bolt/inDrive/taxi) with
+  /// approximate cost & ETA. Null when the trip has no recognised Thailand
+  /// arrival airport.
+  Future<AirportTransfer?> day1AirportTransfer(String tripId) async {
+    final res = await _dio.get<Map<String, dynamic>>(
+      '/api/trips/$tripId/day1/airport-transfer',
+    );
+    final data = res.data;
+    if (data == null || data.isEmpty) return null;
+    return AirportTransfer.fromJson(data);
+  }
+
+  /// Ordered stops + leg-by-leg distance/duration for one day's plan, for the
+  /// Day map view. Activities without resolvable coordinates are omitted.
+  Future<DayRoute> dayRoute(String tripId, int dayIndex) async {
+    final res = await _dio.get<Map<String, dynamic>>(
+      '/api/trips/$tripId/itinerary/day/$dayIndex/route',
+    );
+    return DayRoute.fromJson(res.data!);
+  }
 }
 
 /// Arrival details resolved from a flight lookup.
@@ -112,3 +135,20 @@ final itineraryProvider = FutureProvider.family<ItineraryPlan, String>((
 ) async {
   return ref.watch(itineraryRepositoryProvider).get(tripId);
 });
+
+/// Day 1 airport -> hotel transfer options for a given trip id.
+final day1AirportTransferProvider =
+    FutureProvider.family<AirportTransfer?, String>((ref, tripId) async {
+      return ref.watch(itineraryRepositoryProvider).day1AirportTransfer(tripId);
+    });
+
+/// Route (stops + leg distances) for a single day of a trip's plan.
+final dayRouteProvider =
+    FutureProvider.family<DayRoute, (String tripId, int dayIndex)>((
+      ref,
+      key,
+    ) async {
+      return ref
+          .watch(itineraryRepositoryProvider)
+          .dayRoute(key.$1, key.$2);
+    });

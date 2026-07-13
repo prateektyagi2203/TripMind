@@ -76,6 +76,22 @@ def _norm_item(it: Any, category: str) -> dict[str, str] | None:
     }
 
 
+async def geocode(query: str) -> tuple[str, str] | None:
+    """Resolve a free-text place query to (lat, lng). None on any failure."""
+    if not _api_key() or not query.strip():
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            geo = await _get(
+                client,
+                "/locations/search",
+                {"query": query, "limit": "1", "lang": "en_US"},
+            )
+        return _extract_latlng(geo)
+    except Exception:
+        return None
+
+
 async def nearby_places(
     hotel_name: str, hotel_address: str, city: str, limit: int = 20
 ) -> list[dict[str, str]]:

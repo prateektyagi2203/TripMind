@@ -179,3 +179,27 @@ class FlightLookupResponse(BaseModel):
     arrival_airport: str = ""
     scheduled_departure: str = ""  # raw local datetime, if available
     scheduled_arrival: str = ""
+
+
+# ---- Day 1 airport -> hotel transfer --------------------------------------
+class TransferProviderOut(BaseModel):
+    name: str
+    price_thb: int
+    eta_min: int
+    best_value: bool = False
+
+
+class AirportTransferOut(BaseModel):
+    airport_code: str
+    airport_name: str
+    hotel_name: str
+    distance_km: float
+    # routed: real driving distance/duration from OpenRouteService.
+    # geocoded: hotel location is real but distance is a straight-line estimate.
+    # approximate: neither the hotel location nor the distance is precise.
+    source: Literal["routed", "geocoded", "approximate"] = "approximate"
+    airport_lat: float = 0.0
+    airport_lng: float = 0.0
+    hotel_lat: float = 0.0
+    hotel_lng: float = 0.0
+    providers: list[TransferProviderOut] = Field(default_factory=list)

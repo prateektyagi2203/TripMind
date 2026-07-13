@@ -24,6 +24,20 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>TripMind uses your location to greet you when you arrive in your destination country or at your hotel.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>TripMind uses background location to greet you when you arrive in your destination country or at your hotel, even if the app isn't open.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>grab</string>
+		<string>bolt</string>
+		<string>indriver</string>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

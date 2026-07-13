@@ -91,3 +91,26 @@ class NearbyPlace(BaseModel):
 class NearbyResponse(BaseModel):
     source: Literal["tripadvisor", "ai", "fallback"] = "fallback"
     results: list[NearbyPlace] = Field(default_factory=list)
+
+
+# ---- Day map / route ------------------------------------------------------
+class RouteStopOut(BaseModel):
+    title: str
+    lat: float
+    lng: float
+
+
+class RouteLegOut(BaseModel):
+    distance_km: float
+    duration_min: float
+
+
+class DayRouteOut(BaseModel):
+    # routed: real driving distance/duration from OpenRouteService for every leg.
+    # approximate: at least one leg fell back to a straight-line estimate.
+    source: Literal["routed", "approximate"] = "approximate"
+    stops: list[RouteStopOut] = Field(default_factory=list)
+    legs: list[RouteLegOut] = Field(default_factory=list)
+    total_distance_km: float = 0.0
+    total_duration_min: float = 0.0
+    skipped: int = 0  # activities dropped for missing coordinates

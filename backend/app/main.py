@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from typing import Optional
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI
@@ -39,6 +40,7 @@ from .tools_service import translate  # noqa: E402
 from .trip_context import get_trip_context  # noqa: E402
 from .trip_day import build_trip_day  # noqa: E402
 from .trip_schemas import (  # noqa: E402
+    AirportTransferOut,
     FlightLookupRequest,
     FlightLookupResponse,
     FlightStatusOut,
@@ -62,6 +64,7 @@ from .trips_service import (  # noqa: E402
     update_trip,
 )
 from .itinerary_schemas import (  # noqa: E402
+    DayRouteOut,
     GenerateItineraryRequest,
     ItineraryPlanOut,
     NearbyResponse,
@@ -74,6 +77,8 @@ from .itinerary_service import (  # noqa: E402
     save_itinerary,
 )
 from . import flight_service  # noqa: E402
+from .day_route_service import build_day_route  # noqa: E402
+from .transport_service import day1_airport_transfer  # noqa: E402
 
 app = FastAPI(title="TripMind Concierge API", version="0.1.0")
 
@@ -122,6 +127,9 @@ _origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
+    # flutter run -d chrome binds a new random localhost port each launch, so
+    # match any localhost/127.0.0.1 port instead of pinning one in _origins.
+    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -338,6 +346,36 @@ async def places_nearby(
     session: Session = Depends(get_session),
 ) -> NearbyResponse:
     return await nearby_for_trip(trip_id, category, user, session, query=q)
+
+
+@app.get(
+    "/api/trips/{trip_id}/itinerary/day/{day_index}/route",
+    response_model=DayRouteOut,
+)
+async def itinerary_day_route(
+    trip_id: str,
+    day_index: int,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> DayRouteOut:
+    """Ordered stops + leg-by-leg distance/duration for one day's plan, for
+    the Day map view. Activities without saved coordinates are skipped."""
+    return await build_day_route(trip_id, day_index, user, session)
+
+
+@app.get(
+    "/api/trips/{trip_id}/day1/airport-transfer",
+    response_model=Optional[AirportTransferOut],
+)
+async def trip_day1_airport_transfer(
+    trip_id: str,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> Optional[AirportTransferOut]:
+    """Grab/Bolt/inDrive/taxi options + approx cost & ETA from the arrival
+    airport to the Day 1 hotel. None when the trip has no recognised
+    Thailand arrival airport (feature is Thailand-specific for now)."""
+    return await day1_airport_transfer(trip_id, user, session)
 
 
 @app.post("/api/flights/lookup", response_model=FlightLookupResponse)

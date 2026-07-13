@@ -149,10 +149,7 @@ class _CreateTripScreenState extends ConsumerState<CreateTripScreen> {
         _travellers.add(d);
       }
     } else {
-      final me = _TravellerDraft(isMe: true);
-      me.nameCtrl.text = 'Prateek';
-      me.ageCtrl.text = '42';
-      _travellers.add(me);
+      _travellers.add(_TravellerDraft(isMe: true));
     }
 
     if (t == null) return;
@@ -876,6 +873,8 @@ class _CreateTripScreenState extends ConsumerState<CreateTripScreen> {
           label: 'Arrival time (local)',
           value: arrTimeLabel,
           onTap: _pickArrTime,
+          placeholder: 'Select time',
+          icon: Icons.schedule_rounded,
         ),
         const SizedBox(height: 16),
         _ModePicker(
@@ -956,6 +955,8 @@ class _CreateTripScreenState extends ConsumerState<CreateTripScreen> {
           label: 'Departure time (local)',
           value: timeLabel,
           onTap: _pickDepTime,
+          placeholder: 'Select time',
+          icon: Icons.schedule_rounded,
         ),
         const SizedBox(height: 16),
         _ModePicker(
@@ -1331,10 +1332,14 @@ class _DateField extends StatelessWidget {
   final String label;
   final String? value;
   final VoidCallback onTap;
+  final String placeholder;
+  final IconData icon;
   const _DateField({
     required this.label,
     required this.value,
     required this.onTap,
+    this.placeholder = 'Select date',
+    this.icon = Icons.calendar_today_rounded,
   });
 
   @override
@@ -1350,18 +1355,14 @@ class _DateField extends StatelessWidget {
         ),
         child: Row(
           children: [
-            const Icon(
-              Icons.calendar_today_rounded,
-              size: 18,
-              color: AppColors.ocean,
-            ),
+            Icon(icon, size: 18, color: AppColors.ocean),
             const SizedBox(width: 12),
             Text(
               '$label: ',
               style: const TextStyle(color: AppColors.mutedForeground),
             ),
             Text(
-              value ?? 'Select date',
+              value ?? placeholder,
               style: TextStyle(
                 fontWeight: FontWeight.w600,
                 color: value == null
